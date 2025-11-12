@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 import requests
@@ -69,11 +69,39 @@ def list_tools():
             "category": "Finance"
         },
         {
+            "slug": "currency-converter",
+            "name": "Currency Converter",
+            "description": "Convert amounts between currencies",
+            "endpoint": "/api/convert",
+            "category": "Finance"
+        },
+        {
             "slug": "weather",
             "name": "Weather",
             "description": "Current weather by city (Open-Meteo)",
             "endpoint": "/api/weather",
             "category": "Weather"
+        },
+        {
+            "slug": "timezone",
+            "name": "Time by Timezone",
+            "description": "Get current time for a timezone",
+            "endpoint": "/api/timezone",
+            "category": "Time"
+        },
+        {
+            "slug": "holidays",
+            "name": "Public Holidays",
+            "description": "List public holidays for a country/year",
+            "endpoint": "/api/holidays",
+            "category": "Calendar"
+        },
+        {
+            "slug": "bitcoin-price",
+            "name": "Bitcoin Price",
+            "description": "Current BTC price (CoinDesk)",
+            "endpoint": "/api/btc",
+            "category": "Crypto"
         },
         {
             "slug": "random-joke",
@@ -123,6 +151,55 @@ def list_tools():
             "description": "Validate email format and MX using RFC rules",
             "endpoint": "/api/validate-email",
             "category": "Validation"
+        },
+        {
+            "slug": "nasa-apod",
+            "name": "NASA APOD",
+            "description": "Astronomy Picture of the Day (NASA DEMO_KEY)",
+            "endpoint": "/api/nasa-apod",
+            "category": "Images"
+        },
+        {
+            "slug": "dictionary",
+            "name": "Dictionary Lookup",
+            "description": "Meanings and phonetics for a word",
+            "endpoint": "/api/dictionary",
+            "category": "Language"
+        },
+        {
+            "slug": "pokemon",
+            "name": "Pokémon Info",
+            "description": "Basic data from PokéAPI",
+            "endpoint": "/api/pokemon",
+            "category": "Fun"
+        },
+        {
+            "slug": "meals",
+            "name": "Recipe Search",
+            "description": "Search meals by keyword",
+            "endpoint": "/api/meal",
+            "category": "Food"
+        },
+        {
+            "slug": "color-info",
+            "name": "Color Info",
+            "description": "Details about a HEX color",
+            "endpoint": "/api/color",
+            "category": "Design"
+        },
+        {
+            "slug": "user-agent",
+            "name": "User-Agent Echo",
+            "description": "See your request headers",
+            "endpoint": "/api/user-agent",
+            "category": "Debug"
+        },
+        {
+            "slug": "favicon-fetcher",
+            "name": "Favicon Fetcher",
+            "description": "Get a site's favicon via Google",
+            "endpoint": "/api/favicon",
+            "category": "Links"
         },
         {
             "slug": "placeholder-image",
@@ -188,6 +265,19 @@ def exchange_rates(base: str = Query("USD")):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@app.get("/api/convert")
+def currency_convert(from_: str = Query("USD", alias="from"), to: str = Query("EUR"), amount: float = Query(1.0, ge=0)):
+    url = "https://api.exchangerate.host/convert"
+    try:
+        r = requests.get(url, params={"from": from_.upper(), "to": to.upper(), "amount": amount}, timeout=10)
+        if not r.ok:
+            raise HTTPException(status_code=502, detail="exchangerate.host convert failed")
+        j = r.json()
+        return {"from": from_.upper(), "to": to.upper(), "amount": amount, "result": j.get("result")}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @app.get("/api/weather")
 def weather(city: str = Query(...)):
     try:
@@ -213,6 +303,40 @@ def weather(city: str = Query(...)):
         return data
     except HTTPException:
         raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/timezone")
+def timezone(tz: str = Query("Etc/UTC")):
+    try:
+        r = requests.get(f"https://worldtimeapi.org/api/timezone/{tz}", timeout=8)
+        if r.ok:
+            return r.json()
+        raise HTTPException(status_code=r.status_code, detail="worldtimeapi failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/holidays")
+def holidays(country: str = Query("US"), year: int = Query(2024)):
+    try:
+        r = requests.get(f"https://date.nager.at/api/v3/PublicHolidays/{year}/{country.upper()}", timeout=10)
+        if r.ok:
+            return {"country": country.upper(), "year": year, "holidays": r.json()}
+        raise HTTPException(status_code=r.status_code, detail="Nager.Date failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/btc")
+def btc_price():
+    try:
+        r = requests.get("https://api.coindesk.com/v1/bpi/currentprice.json", timeout=8)
+        if r.ok:
+            j = r.json()
+            return {"time": j.get("time", {}), "USD": j.get("bpi", {}).get("USD", {}), "GBP": j.get("bpi", {}).get("GBP", {}), "EUR": j.get("bpi", {}).get("EUR", {})}
+        raise HTTPException(status_code=r.status_code, detail="CoinDesk failed")
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e))
 
@@ -300,6 +424,94 @@ def validate_email(email: str = Query(...)):
             return JSONResponse(status_code=200, content={"email": email, "valid": False, "reason": str(e)})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/nasa-apod")
+def nasa_apod(date: str | None = Query(None)):
+    try:
+        params = {"api_key": "DEMO_KEY"}
+        if date:
+            params["date"] = date
+        r = requests.get("https://api.nasa.gov/planetary/apod", params=params, timeout=10)
+        if r.ok:
+            return r.json()
+        raise HTTPException(status_code=r.status_code, detail="NASA APOD failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/dictionary")
+def dictionary(word: str = Query(...)):
+    try:
+        r = requests.get(f"https://api.dictionaryapi.dev/api/v2/entries/en/{word}", timeout=10)
+        if r.ok:
+            return r.json()
+        raise HTTPException(status_code=r.status_code, detail="Dictionary API failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/pokemon")
+def pokemon(name: str = Query("ditto")):
+    try:
+        r = requests.get(f"https://pokeapi.co/api/v2/pokemon/{name.lower()}", timeout=10)
+        if r.ok:
+            j = r.json()
+            return {
+                "name": j.get("name"),
+                "id": j.get("id"),
+                "height": j.get("height"),
+                "weight": j.get("weight"),
+                "sprites": j.get("sprites", {}),
+                "types": [t["type"]["name"] for t in j.get("types", [])],
+            }
+        raise HTTPException(status_code=r.status_code, detail="PokeAPI failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/meal")
+def meal(search: str = Query("chicken")):
+    try:
+        r = requests.get("https://www.themealdb.com/api/json/v1/1/search.php", params={"s": search}, timeout=10)
+        if r.ok:
+            return r.json()
+        raise HTTPException(status_code=r.status_code, detail="TheMealDB failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/color")
+def color(hex: str = Query("ff5733")):
+    try:
+        r = requests.get("https://www.thecolorapi.com/id", params={"hex": hex.lstrip('#')}, timeout=8)
+        if r.ok:
+            return r.json()
+        raise HTTPException(status_code=r.status_code, detail="The Color API failed")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/api/user-agent")
+def user_agent(req: Request):
+    # Echo request headers for debugging
+    return {
+        "user_agent": req.headers.get("user-agent"),
+        "headers": {k: v for k, v in req.headers.items()},
+    }
+
+
+@app.get("/api/favicon")
+def favicon(url: str = Query(..., description="Website URL"), size: int = Query(64)):
+    try:
+        # Use Google s2 favicons service
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        domain = parsed.netloc or parsed.path
+        icon_url = f"https://www.google.com/s2/favicons?sz={size}&domain={domain}"
+        return RedirectResponse(icon_url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 if __name__ == "__main__":
